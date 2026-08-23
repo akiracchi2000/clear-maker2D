@@ -828,25 +828,53 @@ function displayResult(text) {
         return { correct: 0, total: state.test.questions.length, passed: false, isResubmit: true };
     }
 
-    const judgement = (text.match(/\[判定\]\s*\n?([^\n]+)/) || [])[1] || (text.includes('合格') ? '合格' : '再チャレンジ');
+    const totalQuestions = state.test?.questions?.length || 12;
+    const lines = text.split('\n');
+    let countedCircles = 0;
+    let countedCrosses = 0;
+
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        if (/^\d+\.\s*[○◯●◎✓]/.test(trimmed)) {
+            countedCircles++;
+        } else if (/^\d+\.\s*[×✕✖xX✗]/.test(trimmed)) {
+            countedCrosses++;
+        }
+    });
+
     const scoreMatch = text.match(/\[得点\]\s*\n?\s*(\d+)\s*\/\s*(\d+)/) || text.match(/(\d+)\s*問中\s*(\d+)\s*問正解/);
+    let correct = null;
+    let total = totalQuestions;
 
-    let correct = scoreMatch ? Number(scoreMatch[1]) : null;
-    let total = scoreMatch ? Number(scoreMatch[2]) : state.test.questions.length;
-    if (scoreMatch && text.match(/問中/)) [total, correct] = [Number(scoreMatch[1]), Number(scoreMatch[2])];
+    if (scoreMatch) {
+        if (text.match(/問中/)) {
+            total = Number(scoreMatch[1]);
+            correct = Number(scoreMatch[2]);
+        } else {
+            correct = Number(scoreMatch[1]);
+            total = Number(scoreMatch[2]);
+        }
+    } else if (countedCircles > 0 || countedCrosses > 0) {
+        correct = countedCircles;
+        total = (countedCircles + countedCrosses) >= totalQuestions ? (countedCircles + countedCrosses) : totalQuestions;
+    }
 
-    const passed = correct === null
-        ? judgement.includes('合格') && !judgement.includes('不合格')
-        : correct / Math.max(1, total) >= PASS_RATE;
+    if (correct === null) {
+        correct = countedCircles;
+    }
+
+    const judgementMatch = (text.match(/\[判定\]\s*\n?([^\n]+)/) || [])[1] || '';
+    const passThreshold = Math.ceil(total * PASS_RATE); // 12問中10問以上で合格 (83%)
+    const passed = (correct >= passThreshold) && !judgementMatch.includes('再チャレンジ') && !judgementMatch.includes('不合格') && !judgementMatch.includes('再提出');
 
     els.resultBadge.className = `result-badge ${passed ? 'pass' : 'retry'}`;
     els.resultBadge.textContent = passed ? '合格' : '再チャレンジ';
-    els.resultScore.textContent = correct === null ? `${total}問` : `${correct} / ${total}`;
+    els.resultScore.textContent = `${correct} / ${total}`;
 
     const details = text.replace(/\[判定\][\s\S]*?(?=\[得点\]|\[詳細\]|$)/, '').replace(/\[得点\][\s\S]*?(?=\[詳細\]|$)/, '').trim();
     els.resultContent.innerHTML = sanitizeHtml(marked.parse(details || text, { breaks: true }));
     els.resultSection.classList.remove('hidden');
-    els.newTest.textContent = '次のテストへ進む';
+    els.newTest.textContent = passed ? '次のテストへ進む' : 'もう一度解く';
 
     return { correct, total, passed, isResubmit: false };
 }
@@ -855,7 +883,7 @@ function extractWrongAnswers(text) {
     const wrong = [];
     const lines = text.split('\n');
     lines.forEach(line => {
-        const match = line.match(/^(\d+)\.\s*[×xX]\s*(.+)$/);
+        const match = line.match(/^(\d+)\.\s*[×✕✖xX✗]\s*(.+)$/);
         if (match) {
             const num = Number(match[1]);
             const q = state.test?.questions?.find(item => item.number === num);
@@ -1009,15 +1037,78 @@ function showHistory() {
     }
 }
 
-function saveResultImage() {
-    if (typeof html2canvas === 'undefined') return alert('html2canvasが利用できません');
-    const target = els.resultSection;
-    html2canvas(target, { ignoreElements: el => el.classList.contains('screenshot-exclude') }).then(canvas => {
+async function saveResultImage() {
+    const btn = els.screenshot;
+    if (!els.resultSection || els.resultSection.classList.contains('hidden')) {
+        alert('保存する採点結果がありません。');
+        return;
+    }
+
+    if (typeof html2canvas === 'undefined') {
+        alert('画像生成ライブラリを読み込み中です。少し待ってから再度お試しください。');
+        return;
+    }
+
+    const originalText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '📸 画像を生成中…';
+    }
+
+    try {
+        const target = els.resultSection;
+        const studentInfo = (state.studentName || state.studentId || '生徒').replace(/[^\w\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff_-]/g, '_');
+        const now = new Date();
+        const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+        const fileName = `語彙採点結果_${studentInfo}_${dateStr}.png`;
+
+        const canvas = await html2canvas(target, {
+            scale: Math.min(2, window.devicePixelRatio || 2),
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            logging: false,
+            ignoreElements: el => el.classList.contains('screenshot-exclude') || el.id === 'screenshot-btn' || el.id === 'new-test-btn'
+        });
+
+        // 1. スマホの Web Share API (画像直接保存 / LINE共有等) を優先
+        if (navigator.share && navigator.canShare) {
+            try {
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+                if (blob) {
+                    const file = new File([blob], fileName, { type: 'image/png' });
+                    if (navigator.canShare({ files: [file] })) {
+                        await navigator.share({
+                            files: [file],
+                            title: '語彙テスト採点結果',
+                            text: `${state.studentName || '生徒'}さんの語彙テスト採点結果です。`
+                        });
+                        return;
+                    }
+                }
+            } catch (shareErr) {
+                if (shareErr.name === 'AbortError') return;
+                console.warn('Web Share API error, falling back to download:', shareErr);
+            }
+        }
+
+        // 2. PC / Web Share 非対応環境: ダウンロードリンクをトリガー
+        const dataUrl = canvas.toDataURL('image/png');
         const link = document.createElement('a');
-        link.download = `語彙テスト結果_${state.studentName || '生徒'}_${new Date().toISOString().slice(0,10)}.png`;
-        link.href = canvas.toDataURL();
+        link.download = fileName;
+        link.href = dataUrl;
+        document.body.appendChild(link);
         link.click();
-    });
+        document.body.removeChild(link);
+
+    } catch (error) {
+        console.error('画像保存エラー:', error);
+        alert('画像の保存に失敗しました。画面のスクリーンショット機能もお試しください。');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
 }
 
 function formatStudentId(value) {
