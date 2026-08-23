@@ -710,6 +710,7 @@ ${answerKey}
                 apiKey: 'server',
                 isStudentApp: true,
                 subject: 'other',
+                model: 'gemini-3.7-flash',
                 userPrompt: prompt,
                 images: { student: state.images.map(({ mimeType, data }) => ({ mimeType, data })) }
             }),
