@@ -661,45 +661,35 @@ async function evaluateAnswer() {
         `${q.number}. 正答「${q.answer}」${q.reading ? ` (読み: ${q.reading})` : ''}\n文: ${q.sentence || q.clozeSentence}`
     ).join('\n\n');
 
-    const prompt = `あなたは高校国語・現代文の語彙テストの厳密かつ親切な採点官です。
+    const prompt = `あなたは高校国語・現代文の語彙テストの厳格な採点官です。
 生徒はノートや解答用紙に問題番号（1〜${state.test.questions.length}）とともに【単語（漢字・カタカナ語）のみ】を手書きしています。
-答案画像を読み取り、下の問題番号と正答表に照合して採点してください。
+答案画像を正確に読み取り、下の問題番号と正答表に一問ずつ厳密に照合して採点してください。
 
-【最重要ルール: 単語の重複使用・繰り返し回答の禁止（ノーカウント・再提出）】
-- このテストでは「語群の単語は一度ずつしか使えない」ルールです。
-- 答案画像を確認し、同じ単語が2問以上で重複して使用されている場合（例: 問1と問4の両方に同じ語が書かれている等）は、通常採点を中止して以下の【重複エラーフォーマット】で出力してください。
-
-【重複エラーフォーマット（同じ単語を複数回使っている場合）】
-[判定]
-再提出（単語の重複使用あり）
-[得点]
-0/${state.test.questions.length}
-[詳細]
-同じ単語が複数箇所で重複して書かれています（例: 問〇と問〇で重複）。語群の単語は一度ずつしか使えません。語群を確認して書き直し、再度撮影してください。
-[ひとこと]
-語群の単語は1問につき1つずつ使います！使った語群を消し込みながら解いてみましょう。
-
-【通常採点ルール（単語の重複がない場合）】
-1. 生徒は例文を書き写す必要はなく、「単語のみ」を書いています。単語のみの記述で正常に採点してください。
-2. 漢字の正確性を厳密にチェックしてください（トメ・ハネ・部首の間違い、同音異義語の誤字などは不正解×とします）。
-3. 読みがな（ひらがな）での記入は、漢字指定の語彙については原則不正解（×）とし、「漢字で書きましょう」とアドバイスしてください。
-4. 全${state.test.questions.length}問すべて必ず判定してください。83%以上の正解で合格です（12問中10問以上正解で合格）。
+【採点基準（極めて厳格に判定してください）】
+1. 生徒が書いた単語が、正答と「完全一致」している場合のみ ○（正解）とします。
+2. 正答と異なる単語（他の問題の単語など）、誤字・脱字（トメ・ハネ・部首違い）、読みがな（ひらがな）での記入、空欄・未記入は、すべて例外なく【 ×（不正解）】と判定してください。
+3. 全${state.test.questions.length}問すべてについて判定を出力してください。
+4. 正解数（○の数）を正確にカウントし、[得点] に「正解数/${state.test.questions.length}」と記載してください。
+5. 83%以上の正解（12問中10問以上）で合格、それ未満（9問以下）はすべて「再チャレンジ」です。
 
 【問題と正答表】
 ${answerKey}
 
-【通常採点の出力フォーマット】
+【最重要ルール: 単語の重複使用の禁止】
+- 語群の単語は1問につき1度しか使えません。
+- 答案内で同じ単語が2箇所以上で重複回答されている場合は、通常採点を中止し、[判定] 再提出（単語の重複使用あり） / [得点] 0/${state.test.questions.length} としてください。
+
+【出力フォーマット】
 [判定]
 合格 または 再チャレンジ
 [得点]
 正解数/${state.test.questions.length}
 [詳細]
-1. ○ 読み取り「...」 / 正答「...」
-2. × 読み取り「...」 / 正答「...」
-   ※注: （誤字の解説やアドバイスがあれば簡潔に記載）
-（全番号を出力）
+1. ○ 読み取り「（生徒が書いた文字）」 / 正答「（正答単語）」
+2. × 読み取り「（生徒が書いた文字）」 / 正答「（正答単語）」
+（全番号を必ず出力。×の理由や誤字の指摘があれば簡潔に追記）
 [ひとこと]
-短く前向きなコメント。間違えやすい漢字のポイントや語彙の意味へのアドバイス。`;
+アドバイスや励ましのコメント。`;
 
     setGradingState(true);
     try {
@@ -721,6 +711,7 @@ ${answerKey}
         if (data.error) throw new Error(data.error);
 
         const text = getAiText(data);
+        console.log('AI Grading Raw Output:\n', text);
         const result = displayResult(text);
 
         if (result.isResubmit) {
@@ -785,10 +776,10 @@ function displayResult(text) {
     const studentWords = [];
     const detailLines = text.split('\n');
     detailLines.forEach(line => {
-        const m = line.match(/^\d+\.\s*[○×xX]\s*読み取り[「『]([^」』]+)[」』]/);
+        const m = line.match(/^\d+\.\s*[○◯●◎✓×✕✖xX✗]?\s*読み取り[「『]([^」』]+)[」』]/);
         if (m) {
             const w = m[1].trim();
-            if (w && w !== '未記入' && w !== '空欄' && w !== '判読不能') {
+            if (w && w !== '未記入' && w !== '空欄' && w !== '判読不能' && w !== '無記入') {
                 studentWords.push(w);
             }
         }
@@ -830,15 +821,33 @@ function displayResult(text) {
 
     const totalQuestions = state.test?.questions?.length || 12;
     const lines = text.split('\n');
-    let countedCircles = 0;
-    let countedCrosses = 0;
+    let verifiedCorrectCount = 0;
+    let verifiedWrongCount = 0;
 
+    // 各問の判定と読み取り単語の二重検証
     lines.forEach(line => {
         const trimmed = line.trim();
-        if (/^\d+\.\s*[○◯●◎✓]/.test(trimmed)) {
-            countedCircles++;
-        } else if (/^\d+\.\s*[×✕✖xX✗]/.test(trimmed)) {
-            countedCrosses++;
+        const detailMatch = trimmed.match(/^(\d+)\.\s*([○◯●◎✓×✕✖xX✗])?\s*(?:読み取り[「『]([^」』]*)[」』])?\s*(?:\/\s*正答[「『]([^」』]*)[」』])?/);
+        if (detailMatch) {
+            const mark = detailMatch[2] || '';
+            const readWord = (detailMatch[3] || '').trim();
+            const answerWord = (detailMatch[4] || '').trim();
+
+            const isMarkCircle = /[○◯●◎✓]/.test(mark);
+            const isMarkCross = /[×✕✖xX✗]/.test(mark);
+
+            // 読み取りと正答が取得できている場合の一致検証
+            if (readWord && answerWord) {
+                if (readWord === answerWord && isMarkCircle) {
+                    verifiedCorrectCount++;
+                } else {
+                    verifiedWrongCount++;
+                }
+            } else if (isMarkCircle) {
+                verifiedCorrectCount++;
+            } else if (isMarkCross) {
+                verifiedWrongCount++;
+            }
         }
     });
 
@@ -846,7 +855,10 @@ function displayResult(text) {
     let correct = null;
     let total = totalQuestions;
 
-    if (scoreMatch) {
+    if (verifiedCorrectCount > 0 || verifiedWrongCount > 0) {
+        correct = verifiedCorrectCount;
+        total = (verifiedCorrectCount + verifiedWrongCount) >= totalQuestions ? (verifiedCorrectCount + verifiedWrongCount) : totalQuestions;
+    } else if (scoreMatch) {
         if (text.match(/問中/)) {
             total = Number(scoreMatch[1]);
             correct = Number(scoreMatch[2]);
@@ -854,13 +866,10 @@ function displayResult(text) {
             correct = Number(scoreMatch[1]);
             total = Number(scoreMatch[2]);
         }
-    } else if (countedCircles > 0 || countedCrosses > 0) {
-        correct = countedCircles;
-        total = (countedCircles + countedCrosses) >= totalQuestions ? (countedCircles + countedCrosses) : totalQuestions;
     }
 
     if (correct === null) {
-        correct = countedCircles;
+        correct = 0;
     }
 
     const judgementMatch = (text.match(/\[判定\]\s*\n?([^\n]+)/) || [])[1] || '';
@@ -1195,7 +1204,7 @@ async function syncProgressToGas(result, wrongAnswers) {
         const rate = total > 0 ? (mastered / total) * 100 : 0;
         const rank = getLearnerRank(rate);
 
-        // 1. 進捗・履歴保存
+        // 1. テスト得点・合否・進捗保存
         fetch(GAS_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain' },
@@ -1203,10 +1212,13 @@ async function syncProgressToGas(result, wrongAnswers) {
                 action: 'saveVocabularyProgress',
                 studentId: state.studentId,
                 studentName: state.studentName,
+                testRange: `p.${pageNum}`,
+                correct: result.correct || 0,
+                total: result.total || state.test?.questions?.length || 12,
+                score: `${result.correct || 0} / ${result.total || state.test?.questions?.length || 12}`,
+                passed: result.passed ? '合格' : '再チャレンジ',
                 clearedThrough: mastered,
-                clearedRange: `p.${pageNum}`,
-                rank: rank.name,
-                accuracy: Math.round(((result.correct || 0) / Math.max(1, result.total || 1)) * 100)
+                rank: rank.name
             })
         }).catch(err => console.warn('Progress sync error:', err));
 
