@@ -892,19 +892,41 @@ function extractWrongAnswers(text) {
     const wrong = [];
     const lines = text.split('\n');
     lines.forEach(line => {
-        const match = line.match(/^(\d+)\.\s*[×✕✖xX✗]\s*(.+)$/);
-        if (match) {
-            const num = Number(match[1]);
-            const q = state.test?.questions?.find(item => item.number === num);
-            if (q) {
-                wrong.push({
-                    wordId: q.id || q.answer,
-                    word: q.answer,
-                    reading: q.reading,
-                    sentence: q.sentence,
-                    clozeSentence: q.clozeSentence,
-                    feedback: match[2]
-                });
+        const trimmed = line.trim();
+        const detailMatch = trimmed.match(/^(\d+)\.\s*([○◯●◎✓×✕✖xX✗])?\s*(?:読み取り[「『]([^」』]*)[」』])?\s*(?:\/\s*正答[「『]([^」』]*)[」』])?(.*)$/);
+        if (detailMatch) {
+            const num = Number(detailMatch[1]);
+            const mark = detailMatch[2] || '';
+            const readWord = (detailMatch[3] || '').trim();
+            const answerWord = (detailMatch[4] || '').trim();
+            const extra = (detailMatch[5] || '').trim();
+
+            const isMarkCircle = /[○◯●◎✓]/.test(mark);
+            const isMarkCross = /[×✕✖xX✗]/.test(mark);
+
+            let isWrong = false;
+            if (isMarkCross) {
+                isWrong = true;
+            } else if (readWord && answerWord && readWord !== answerWord) {
+                isWrong = true;
+            } else if (!isMarkCircle && !readWord) {
+                isWrong = true;
+            }
+
+            if (isWrong) {
+                const q = state.test?.questions?.find(item => item.number === num);
+                if (q) {
+                    wrong.push({
+                        wordId: q.id || `No.${q.number || num}`,
+                        number: q.number || num,
+                        word: q.answer,
+                        reading: q.reading || '',
+                        sentence: q.sentence || q.clozeSentence || '',
+                        clozeSentence: q.clozeSentence || q.sentence || '',
+                        studentAnswer: readWord || '未記入',
+                        feedback: extra || (readWord ? `「${readWord}」と解答` : '')
+                    });
+                }
             }
         }
     });
@@ -1236,7 +1258,7 @@ async function syncProgressToGas(result, wrongAnswers) {
                         targetNumber: w.wordId || w.word,
                         word: w.word,
                         questionText: w.sentence || w.clozeSentence || '',
-                        studentAnswer: '',
+                        studentAnswer: w.studentAnswer || '',
                         feedback: w.feedback || ''
                     }))
                 })
