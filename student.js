@@ -372,14 +372,18 @@ function renderTestView() {
     // スティッキー語群のレンダリング
     renderStickyWordBank(page);
 
-    // テスト範囲ラベル
-    els.testRangeLabel.textContent = state.test.isRemedy ? '要復習特訓' : `p.${page.source?.page || ''} (${questions.length}問)`;
-
-    // 問題リストのレンダリング（通常 vs ペア）
+    // 問題リストのレンダリング（通常 vs ペア vs 同音・同訓セット）
+    const pageNumStr = String(page.source?.page || '');
+    const pageNum = parseInt(pageNumStr.replace(/\D/g, '')) || 0;
     const isPaired = (page.layout_type === 'paired') ||
                      (page.title && (page.title.includes('対で覚える') || page.title.includes('対になる')));
+    const isHomonym = (page.layout_type === 'homonym') ||
+                      (pageNum >= 161 && pageNum <= 166) ||
+                      (page.title && (page.title.includes('同音異義') || page.title.includes('同訓異字')));
 
-    if (isPaired && questions.length >= 2) {
+    if (isHomonym && questions.length >= 2) {
+        renderHomonymQuestions(questions, page);
+    } else if (isPaired && questions.length >= 2) {
         renderPairedQuestions(questions);
     } else {
         renderNormalQuestions(questions);
@@ -492,6 +496,56 @@ function renderPairedQuestions(questions) {
             </div>
             ${q1Html}
             ${q2Html}
+        </div>`;
+    }).join('');
+}
+
+function renderHomonymQuestions(questions, page) {
+    // 読み（または解答単語）ごとに連続グループ化
+    const groups = [];
+    let currentGroup = null;
+
+    questions.forEach(q => {
+        const reading = findReadingForWord(page, q.answer, q.answerId) || (q.ruby && q.ruby[0] && q.ruby[0].rt) || '';
+        if (currentGroup && currentGroup.reading && currentGroup.reading === reading) {
+            currentGroup.questions.push(q);
+        } else {
+            if (currentGroup) groups.push(currentGroup);
+            currentGroup = {
+                reading: reading,
+                questions: [q]
+            };
+        }
+    });
+    if (currentGroup) groups.push(currentGroup);
+
+    const isHomophone = page.title && page.title.includes('同音異義');
+    const isHeterograph = page.title && page.title.includes('同訓異字');
+    const typeName = isHomophone ? '同音異義語' : (isHeterograph ? '同訓異字' : '同音・同訓');
+
+    els.questionList.innerHTML = groups.map((g, gIdx) => {
+        const qNums = g.questions.map(q => q.number);
+        const numRange = qNums.length > 1 ? `${qNums[0]} 〜 ${qNums[qNums.length - 1]}` : `${qNums[0]}`;
+        const readingBadge = g.reading ? `<span class="homonym-reading-badge">読み: 「${escapeHtml(g.reading)}」</span>` : '';
+
+        const itemsHtml = g.questions.map(q => {
+            const sentenceHtml = formatClozeSentence(q.clozeSentence, q.ruby);
+            return `<div class="homonym-item">
+                <div style="display: flex; align-items: flex-start; gap: 8px;">
+                    <span class="vocab-q-num">${q.number}</span>
+                    <span class="vocab-sentence">${sentenceHtml}</span>
+                </div>
+            </div>`;
+        }).join('');
+
+        return `<div class="homonym-group-card">
+            <div class="homonym-group-header">
+                <div class="homonym-group-title">
+                    <span>🔷 ${typeName}セット (第${gIdx + 1}組: Q${numRange})</span>
+                </div>
+                ${readingBadge}
+            </div>
+            ${itemsHtml}
         </div>`;
     }).join('');
 }
