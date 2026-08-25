@@ -1,6 +1,6 @@
 const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbydtL3c-D35jMntldTrQ9_mlcP9-9bqkaWdV6d8oRtQXc60YlUn4RVMElnXFyuvLXu_/exec';
 const DATA_URLS = ['./vocabulary-question.json'];
-const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.4.0';
+const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.8.3';
 const HISTORY_KEY = 'clear_maker_2d_history';
 const COMPLETED_PAGES_KEY = 'clear_maker_2d_completed_pages';
 const SELECTED_PAGE_KEY = 'clear_maker_2d_selected_page';
@@ -27,6 +27,7 @@ const els = {
     studentId: byId('student-id'),
     studentName: byId('student-name'),
     saveSetup: byId('save-setup-btn'),
+    resetSetup: byId('reset-setup-btn'),
     settings: byId('settings-btn'),
     displayStudent: byId('display-student'),
     learnerRank: byId('learner-rank'),
@@ -107,6 +108,7 @@ async function init() {
 
 function bindEvents() {
     els.saveSetup.addEventListener('click', saveSetup);
+    if (els.resetSetup) els.resetSetup.addEventListener('click', resetAllStudentData);
     els.settings.addEventListener('click', () => els.setupModal.classList.remove('hidden'));
 
     els.pageSelect.addEventListener('change', () => {
@@ -605,6 +607,9 @@ async function openCamera() {
         els.cameraModal.classList.remove('hidden');
     } catch (error) {
         console.warn('Camera fallback:', error);
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+            alert('📷 カメラへのアクセスが許可されていません。\n\n【カメラの許可方法】\n・iPad / iPhone: アドレスバー左の「ぁあ(AA)」→「Webサイトの設定」→「カメラ」を【許可】にする（または端末の【設定】→【Safari】→【カメラ】）\n・Android / PC: アドレスバー左の鍵アイコン→「権限」→「カメラ」を【許可】にする\n\n※このまま「写真ライブラリ（アルバム）」から写真を選んで提出することもできます。');
+        }
         els.cameraInput.click();
     }
 }
@@ -1256,6 +1261,38 @@ function saveSetup() {
     updateStudentDisplay();
     els.setupModal.classList.add('hidden');
     updateRemedyCount();
+}
+
+function resetAllStudentData() {
+    const ok = confirm('⚠️ この端末に保存されている生徒情報・学習進捗・採点履歴・苦手リストをすべて初期化しますか？\n（最初からやり直すことができます）');
+    if (!ok) return;
+
+    try {
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (
+                key.startsWith('clear_maker_2d_') ||
+                key === 'student_id' ||
+                key === 'student_name'
+            )) {
+                keysToRemove.push(key);
+            }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+
+        state.studentId = '';
+        state.studentName = '';
+        state.test = null;
+        if (els.studentId) els.studentId.value = '';
+        if (els.studentName) els.studentName.value = '';
+
+        alert('端末の学習データを初期化しました。');
+        location.reload();
+    } catch (err) {
+        console.error('Reset failed:', err);
+        alert('初期化中にエラーが発生しました。ブラウザのサイトデータを消去してください。');
+    }
 }
 
 function escapeHtml(str) {
