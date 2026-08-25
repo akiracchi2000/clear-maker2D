@@ -1281,7 +1281,7 @@ function resetAllStudentData() {
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key && (
-                key.startsWith('clear_maker_2d_') ||
+                key.startsWith('clear_maker_') ||
                 key === 'student_id' ||
                 key === 'student_name'
             )) {
