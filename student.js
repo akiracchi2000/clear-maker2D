@@ -163,13 +163,40 @@ function bindEvents() {
 async function loadVocabulary() {
     try {
         let source = null;
+        const VOCABULARY_CACHE_KEY = 'clear_maker_2d_vocabulary_cache';
 
-        // 1. ローカル内蔵バンドルデータ（即時・オフライン0ミリ秒ロード）
-        if (Array.isArray(globalThis.CLEAR_MAKER_VOCABULARY) && globalThis.CLEAR_MAKER_VOCABULARY.length > 0) {
-            source = globalThis.CLEAR_MAKER_VOCABULARY;
-        } else {
-            // スクリプト未ロード時のフォールバック
-            source = await loadVocabularyBundle();
+        // 1. ローカルキャッシュから即時読み込み（通信ゼロ・0ミリ秒ロード）
+        const cachedStr = localStorage.getItem(VOCABULARY_CACHE_KEY);
+        if (cachedStr) {
+            try {
+                source = JSON.parse(cachedStr);
+                if (!Array.isArray(source) || source.length === 0) source = null;
+            } catch (err) {
+                console.warn('キャッシュが無効です', err);
+                localStorage.removeItem(VOCABULARY_CACHE_KEY);
+                source = null;
+            }
+        }
+
+        // 2. キャッシュがない場合、GASから取得（初回のみ）
+        if (!source && GAS_API_URL) {
+            els.dataStatus.textContent = '初回データ取得中(5〜10秒)…';
+            const res = await fetch(GAS_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({ action: 'getVocabularyPages' })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.status === 'success' && Array.isArray(data.pages) && data.pages.length > 0) {
+                    source = data.pages;
+                    try {
+                        localStorage.setItem(VOCABULARY_CACHE_KEY, JSON.stringify(source));
+                    } catch (e) {
+                        console.warn('キャッシュ保存容量オーバー', e);
+                    }
+                }
+            }
         }
 
         if (!source || !Array.isArray(source) || source.length === 0) {
