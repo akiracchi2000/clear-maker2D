@@ -1,6 +1,6 @@
 const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbydtL3c-D35jMntldTrQ9_mlcP9-9bqkaWdV6d8oRtQXc60YlUn4RVMElnXFyuvLXu_/exec';
 const DATA_URLS = ['./vocabulary-question.json'];
-const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.8.3';
+const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.9.1';
 const HISTORY_KEY = 'clear_maker_2d_history';
 const COMPLETED_PAGES_KEY = 'clear_maker_2d_completed_pages';
 const SELECTED_PAGE_KEY = 'clear_maker_2d_selected_page';
@@ -163,33 +163,13 @@ function bindEvents() {
 async function loadVocabulary() {
     try {
         let source = null;
-        let loadedUrl = '';
 
-        // 1. スプレッドシート（GASバックエンド）から非公開データを取得
-        if (GAS_API_URL) {
-            try {
-                els.dataStatus.textContent = 'スプレッドシートから最新語彙を取得中…';
-                const res = await fetch(GAS_API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain' },
-                    body: JSON.stringify({ action: 'getVocabularyPages' })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && data.status === 'success' && Array.isArray(data.pages) && data.pages.length > 0) {
-                        source = data.pages;
-                        loadedUrl = 'Spreadsheet (Cloud)';
-                    }
-                }
-            } catch (err) {
-                console.warn('Failed to load from GAS:', err);
-            }
-        }
-
-        // 2. フォールバック: 内蔵バンドルデータ
-        if (!source && Array.isArray(globalThis.CLEAR_MAKER_VOCABULARY) && globalThis.CLEAR_MAKER_VOCABULARY.length > 0) {
+        // 1. ローカル内蔵バンドルデータ（即時・オフライン0ミリ秒ロード）
+        if (Array.isArray(globalThis.CLEAR_MAKER_VOCABULARY) && globalThis.CLEAR_MAKER_VOCABULARY.length > 0) {
             source = globalThis.CLEAR_MAKER_VOCABULARY;
-            loadedUrl = 'vocabulary-data.js (local)';
+        } else {
+            // スクリプト未ロード時のフォールバック
+            source = await loadVocabularyBundle();
         }
 
         if (!source || !Array.isArray(source) || source.length === 0) {
@@ -503,23 +483,25 @@ function renderPairedQuestions(questions) {
 }
 
 function renderHomonymQuestions(questions, page) {
-    // 読み（または解答単語）ごとに連続グループ化
-    const groups = [];
-    let currentGroup = null;
+    // 読みごとに全体から集約してグループ化（シャッフルされても必ず組になるようにする）
+    const groupMap = new Map();
 
     questions.forEach(q => {
         const reading = findReadingForWord(page, q.answer, q.answerId) || (q.ruby && q.ruby[0] && q.ruby[0].rt) || '';
-        if (currentGroup && currentGroup.reading && currentGroup.reading === reading) {
-            currentGroup.questions.push(q);
-        } else {
-            if (currentGroup) groups.push(currentGroup);
-            currentGroup = {
-                reading: reading,
-                questions: [q]
-            };
+        // 読みが取得できない場合は一意のキーにする
+        const key = reading ? reading : `unknown-${q.id}`;
+        if (!groupMap.has(key)) {
+            groupMap.set(key, { reading: reading, questions: [] });
         }
+        groupMap.get(key).questions.push(q);
     });
-    if (currentGroup) groups.push(currentGroup);
+
+    const groups = Array.from(groupMap.values());
+
+    // 各グループ内の問題番号を昇順にソート（シャッフル時でもセット内は番号順に見やすくする）
+    groups.forEach(g => {
+        g.questions.sort((a, b) => a.number - b.number);
+    });
 
     const isHomophone = page.title && page.title.includes('同音異義');
     const isHeterograph = page.title && page.title.includes('同訓異字');

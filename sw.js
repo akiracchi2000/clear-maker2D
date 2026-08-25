@@ -1,9 +1,10 @@
-const CACHE_NAME = 'clear-maker-2d-v2.8.3';
+const CACHE_NAME = 'clear-maker-2d-v2.9.1';
 const APP_SHELL = [
     './',
     './index.html',
-    './student.css?v=2.8.3',
-    './student.js?v=2.8.3',
+    './student.css?v=2.9.1',
+    './student.js?v=2.9.1',
+    './vocabulary-data.js?v=2.9.1',
     './manifest.json',
     './icon-192.png',
     './icon-512.png',
